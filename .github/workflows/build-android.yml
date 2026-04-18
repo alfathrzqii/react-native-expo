@@ -1,0 +1,119 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Prebuild Android
+        run: npx expo prebuild --platform android --clean
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Decode Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          else
+            echo "KEYSTORE_BASE64 secret is not set, the build might fail if signing is required."
+          fi
+
+      - name: Modify build.gradle for Splits and Release Signing
+        run: |
+          # Use awk to inject the splits configuration block safely inside the android { ... } block
+          awk '/defaultConfig \{/ { print "    splits {\n        abi {\n            reset()\n            enable enableSeparateBuildPerCPUArchitecture\n            universalApk true\n            include \"armeabi-v7a\", \"x86\", \"arm64-v8a\", \"x86_64\"\n        }\n    }"; print; next }1' android/app/build.gradle > android/app/build.gradle.tmp && mv android/app/build.gradle.tmp android/app/build.gradle
+
+          # Add enableSeparateBuildPerCPUArchitecture to project scope
+          sed -i 's/def jscFlavor = /def enableSeparateBuildPerCPUArchitecture = true\ndef jscFlavor = /g' android/app/build.gradle
+
+          # Add release signing config inside signingConfigs block using awk
+          awk '/signingConfigs \{/ { print; print "        release {\n            if (project.hasProperty(\"MYAPP_UPLOAD_STORE_FILE\")) {\n                storeFile file(MYAPP_UPLOAD_STORE_FILE)\n                storePassword MYAPP_UPLOAD_STORE_PASSWORD\n                keyAlias MYAPP_UPLOAD_KEY_ALIAS\n                keyPassword MYAPP_UPLOAD_KEY_PASSWORD\n            }\n        }"; next }1' android/app/build.gradle > android/app/build.gradle.tmp && mv android/app/build.gradle.tmp android/app/build.gradle
+
+          # Change signing config from debug to release inside buildTypes.release block
+          awk '/release \{/ {in_release=1} in_release && /signingConfig signingConfigs.debug/ {gsub(/signingConfigs.debug/, "signingConfigs.release"); in_release=0} 1' android/app/build.gradle > android/app/build.gradle.tmp && mv android/app/build.gradle.tmp android/app/build.gradle
+
+      - name: Build Release APKs
+        working-directory: ./android
+        run: >
+          ./gradlew assembleRelease
+          -PMYAPP_UPLOAD_STORE_FILE=release.keystore
+          -PMYAPP_UPLOAD_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
+          -PMYAPP_UPLOAD_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
+          -PMYAPP_UPLOAD_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
+
+      - name: Prepare APKs
+        id: prepare_apks
+        run: |
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}"
+          mkdir -p apks_to_upload
+
+          # Find all release apks
+          find android/app/build/outputs/apk/release -name "*.apk" -type f | while read file; do
+            # The file name usually looks like app-armeabi-v7a-release.apk or app-universal-release.apk
+            filename=$(basename "$file")
+
+            # Default to universal if we can't detect abi
+            abi="universal"
+            if [[ "$filename" == *"armeabi-v7a"* ]]; then abi="armeabi-v7a"; fi
+            if [[ "$filename" == *"arm64-v8a"* ]]; then abi="arm64-v8a"; fi
+            if [[ "$filename" == *"x86_64"* ]]; then abi="x86_64"; fi
+            if [[ "$filename" == *"x86"* && "$filename" != *"x86_64"* ]]; then abi="x86"; fi
+
+            new_name="Remindy-rn-${VERSION}-${abi}.apk"
+            cp "$file" "apks_to_upload/$new_name"
+            echo "Prepared $new_name"
+          done
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Ensure Tag Exists (for workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          # Create and push tag if it does not exist
+          if ! git ls-remote --tags origin | grep -q "refs/tags/${{ env.VERSION }}"; then
+            git tag ${{ env.VERSION }}
+            git push origin ${{ env.VERSION }}
+          fi
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          files: apks_to_upload/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
