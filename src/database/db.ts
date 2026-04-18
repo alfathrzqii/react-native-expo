@@ -11,10 +11,22 @@ export interface Task {
   isCompleted: number; // 0 or 1
 }
 
+export interface TaskNotification {
+  id?: number;
+  taskId?: number;
+  title: string;
+  description: string;
+  type: 'relative' | 'absolute';
+  offsetMinutes: number; // Used if type === 'relative'. Can be 0.
+  scheduledDate: string | null; // ISO 8601 string, Used if type === 'absolute'
+}
+
 const db = SQLite.openDatabaseSync('remindy.db');
 
 export const initDB = () => {
   db.execSync(`
+    PRAGMA foreign_keys = ON;
+
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -24,6 +36,17 @@ export const initDB = () => {
       priority INTEGER NOT NULL,
       isReminderActive INTEGER NOT NULL DEFAULT 0,
       isCompleted INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS task_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taskId INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL,
+      offsetMinutes INTEGER NOT NULL DEFAULT 0,
+      scheduledDate TEXT,
+      FOREIGN KEY(taskId) REFERENCES tasks(id) ON DELETE CASCADE
     );
   `);
 };
@@ -75,4 +98,52 @@ export const getTasksFromDB = (): Task[] => {
     isReminderActive: row.isReminderActive,
     isCompleted: row.isCompleted,
   }));
+};
+
+export const addNotificationToDB = (notification: TaskNotification) => {
+  const result = db.runSync(
+    'INSERT INTO task_notifications (taskId, title, description, type, offsetMinutes, scheduledDate) VALUES (?, ?, ?, ?, ?, ?)',
+    notification.taskId!,
+    notification.title,
+    notification.description,
+    notification.type,
+    notification.offsetMinutes,
+    notification.scheduledDate
+  );
+  return result.lastInsertRowId;
+};
+
+export const getNotificationsByTaskId = (taskId: number): TaskNotification[] => {
+  const allRows = db.getAllSync('SELECT * FROM task_notifications WHERE taskId = ?', taskId) as any[];
+  return allRows.map((row) => ({
+    id: row.id,
+    taskId: row.taskId,
+    title: row.title,
+    description: row.description,
+    type: row.type,
+    offsetMinutes: row.offsetMinutes,
+    scheduledDate: row.scheduledDate,
+  }));
+};
+
+export const getNotificationById = (id: number): TaskNotification | null => {
+  const row = db.getFirstSync('SELECT * FROM task_notifications WHERE id = ?', id) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    taskId: row.taskId,
+    title: row.title,
+    description: row.description,
+    type: row.type,
+    offsetMinutes: row.offsetMinutes,
+    scheduledDate: row.scheduledDate,
+  };
+};
+
+export const deleteNotificationFromDB = (id: number) => {
+  db.runSync('DELETE FROM task_notifications WHERE id = ?', id);
+};
+
+export const deleteAllNotificationsForTask = (taskId: number) => {
+  db.runSync('DELETE FROM task_notifications WHERE taskId = ?', taskId);
 };

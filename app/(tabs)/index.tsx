@@ -69,10 +69,9 @@ export default function Home() {
             onToggleCompletion={toggleTaskCompletion}
             onDelete={deleteTask}
             onEdit={(task) => {
-              // Serialize task object to string to pass via params
               router.push({
-                pathname: '/add-task',
-                params: { taskParam: JSON.stringify(task) },
+                pathname: '/task-detail',
+                params: { id: task.id },
               });
             }}
           />

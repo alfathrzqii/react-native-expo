@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import dayjs from 'dayjs';
+import { TaskNotification } from '../database/db';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -35,58 +36,42 @@ export const requestPermissions = async () => {
   return true;
 };
 
-export const scheduleTaskNotifications = async (taskId: number, title: string, deadline: string) => {
+export const scheduleTaskNotifications = async (
+  taskId: number,
+  deadline: string,
+  notifications: TaskNotification[]
+) => {
   // Cancel existing notifications for this task
   await cancelTaskNotifications(taskId);
 
   const deadlineDate = dayjs(deadline);
   const now = dayjs();
 
-  // Jadwal H-1 Hari
-  const hMinus1Day = deadlineDate.subtract(1, 'day');
-  if (hMinus1Day.isAfter(now)) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Pengingat H-1: ' + title,
-        body: 'Tugas ini akan jatuh tempo besok!',
-        data: { taskId },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: hMinus1Day.toDate(),
-      },
-    });
-  }
+  for (const notif of notifications) {
+    let triggerDate: dayjs.Dayjs;
 
-  // Jadwal H-1 Jam
-  const hMinus1Hour = deadlineDate.subtract(1, 'hour');
-  if (hMinus1Hour.isAfter(now)) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Pengingat 1 Jam: ' + title,
-        body: 'Segera selesaikan tugas ini, sisa waktu 1 jam!',
-        data: { taskId },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: hMinus1Hour.toDate(),
-      },
-    });
-  }
+    if (notif.type === 'relative') {
+      // offsetMinutes can be negative (before deadline) or 0 (at deadline)
+      triggerDate = deadlineDate.add(notif.offsetMinutes, 'minute');
+    } else {
+      // absolute
+      if (!notif.scheduledDate) continue;
+      triggerDate = dayjs(notif.scheduledDate);
+    }
 
-  // Jadwal Deadline
-  if (deadlineDate.isAfter(now)) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Tenggat Waktu Tiba: ' + title,
-        body: 'Waktu untuk tugas ini telah habis!',
-        data: { taskId },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: deadlineDate.toDate(),
-      },
-    });
+    if (triggerDate.isAfter(now)) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: notif.title,
+          body: notif.description,
+          data: { taskId },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate.toDate(),
+        },
+      });
+    }
   }
 };
 
