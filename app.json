@@ -21,7 +21,8 @@
         "backgroundColor": "#1F1F1F"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.tempapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
