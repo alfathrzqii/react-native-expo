@@ -11,12 +11,20 @@ import {
   getNotificationsByTaskId,
   deleteNotificationFromDB,
   getNotificationById,
+  Category,
+  getCategoriesFromDB,
+  addCategoryToDB,
+  deleteCategoryFromDB
 } from '../database/db';
 import { scheduleTaskNotifications, cancelTaskNotifications } from '../utils/notifications';
 
 interface TaskState {
   tasks: Task[];
+  categories: Category[];
   loadTasks: () => void;
+  loadCategories: () => void;
+  addCategoryAction: (name: string) => void;
+  deleteCategoryAction: (id: number) => void;
   addTask: (task: Omit<Task, 'id'>, notifications: Omit<TaskNotification, 'id' | 'taskId'>[]) => Promise<void>;
   updateTask: (task: Task, notifications?: TaskNotification[]) => Promise<void>;
   deleteTask: (id: number) => Promise<void>;
@@ -28,10 +36,26 @@ interface TaskState {
 
 export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
+  categories: [],
 
   loadTasks: () => {
     const tasks = getTasksFromDB();
     set({ tasks });
+  },
+
+  loadCategories: () => {
+    const categories = getCategoriesFromDB();
+    set({ categories });
+  },
+
+  addCategoryAction: (name: string) => {
+    addCategoryToDB(name);
+    get().loadCategories();
+  },
+
+  deleteCategoryAction: (id: number) => {
+    deleteCategoryFromDB(id);
+    get().loadCategories();
   },
 
   addTask: async (task, notifications) => {
