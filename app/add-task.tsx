@@ -1,17 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { TextInput, Button, SegmentedButtons, Switch, Text, useTheme } from 'react-native-paper';
+import { TextInput, Button, SegmentedButtons, Text, useTheme, IconButton, Portal, Modal, Dialog } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import { useTaskStore } from '../src/store/taskStore';
-import { Task } from '../src/database/db';
+import { Task, TaskNotification } from '../src/database/db';
 
 export default function AddTask() {
   const router = useRouter();
   const theme = useTheme();
   const params = useLocalSearchParams();
-  const { addTask, updateTask } = useTaskStore();
+  const { addTask, updateTask, getNotifications } = useTaskStore();
 
   const editingTask: Task | null = params.taskParam
     ? JSON.parse(params.taskParam as string)
@@ -24,9 +24,75 @@ export default function AddTask() {
   );
   const [category, setCategory] = useState(editingTask?.category || 'Tugas');
   const [priority, setPriority] = useState(editingTask?.priority.toString() || '2');
-  const [isReminderActive, setIsReminderActive] = useState(
-    editingTask?.isReminderActive === 1
-  );
+
+  const [notifications, setNotifications] = useState<Omit<TaskNotification, 'id' | 'taskId'>[]>([]);
+
+  // Modal Custom Notif State
+  const [isCustomNotifModalVisible, setCustomNotifModalVisible] = useState(false);
+  const [customNotifTitle, setCustomNotifTitle] = useState('');
+  const [customNotifDesc, setCustomNotifDesc] = useState('');
+  const [customNotifDate, setCustomNotifDate] = useState(new Date());
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
+
+  useEffect(() => {
+    if (editingTask) {
+      const dbNotifs = getNotifications(editingTask.id!);
+      if (dbNotifs.length === 0 && editingTask.isReminderActive === 1) {
+         // Fallback legacy task handling
+         setNotifications([
+          {
+            title: 'Pengingat H-1: ' + (title || 'Tugas Baru'),
+            description: 'Tugas ini akan jatuh tempo besok!',
+            type: 'relative',
+            offsetMinutes: -24 * 60,
+            scheduledDate: null,
+          },
+          {
+            title: 'Pengingat 1 Jam: ' + (title || 'Tugas Baru'),
+            description: 'Segera selesaikan tugas ini, sisa waktu 1 jam!',
+            type: 'relative',
+            offsetMinutes: -60,
+            scheduledDate: null,
+          },
+          {
+            title: 'Tenggat Waktu Tiba: ' + (title || 'Tugas Baru'),
+            description: 'Waktu untuk tugas ini telah habis!',
+            type: 'relative',
+            offsetMinutes: 0,
+            scheduledDate: null,
+          }
+        ]);
+      } else {
+        setNotifications(dbNotifs);
+      }
+    } else {
+      // Default notifications
+      setNotifications([
+        {
+          title: 'Pengingat H-1: ' + (title || 'Tugas Baru'),
+          description: 'Tugas ini akan jatuh tempo besok!',
+          type: 'relative',
+          offsetMinutes: -24 * 60,
+          scheduledDate: null,
+        },
+        {
+          title: 'Pengingat 1 Jam: ' + (title || 'Tugas Baru'),
+          description: 'Segera selesaikan tugas ini, sisa waktu 1 jam!',
+          type: 'relative',
+          offsetMinutes: -60,
+          scheduledDate: null,
+        },
+        {
+          title: 'Tenggat Waktu Tiba: ' + (title || 'Tugas Baru'),
+          description: 'Waktu untuk tugas ini telah habis!',
+          type: 'relative',
+          offsetMinutes: 0,
+          scheduledDate: null,
+        }
+      ]);
+    }
+  }, []);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -43,16 +109,53 @@ export default function AddTask() {
       deadline: deadline.toISOString(),
       category,
       priority: parseInt(priority),
-      isReminderActive: isReminderActive ? 1 : 0,
+      isReminderActive: notifications.length > 0 ? 1 : 0, // Fallback for schema
       isCompleted: editingTask ? editingTask.isCompleted : 0,
     };
 
+    // Update relative notif titles to match current title if it changed,
+    // although this is basic, it ensures consistency
+    const formattedNotifications = notifications.map(notif => {
+      if (notif.type === 'relative' && notif.title.includes('Tugas Baru')) {
+        return {
+          ...notif,
+          title: notif.title.replace('Tugas Baru', title)
+        };
+      }
+      return notif;
+    });
+
     if (editingTask) {
-      await updateTask({ ...taskData, id: editingTask.id });
+      await updateTask({ ...taskData, id: editingTask.id }, formattedNotifications as TaskNotification[]);
     } else {
-      await addTask(taskData);
+      await addTask(taskData, formattedNotifications);
     }
     router.back();
+  };
+
+  const removeNotification = (index: number) => {
+    setNotifications((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddCustomNotif = () => {
+    if (!customNotifTitle) {
+      alert('Judul notifikasi tidak boleh kosong!');
+      return;
+    }
+
+    const newNotif: Omit<TaskNotification, 'id' | 'taskId'> = {
+      title: customNotifTitle,
+      description: customNotifDesc,
+      type: 'absolute',
+      offsetMinutes: 0,
+      scheduledDate: customNotifDate.toISOString()
+    };
+
+    setNotifications([...notifications, newNotif]);
+    setCustomNotifModalVisible(false);
+    setCustomNotifTitle('');
+    setCustomNotifDesc('');
+    setCustomNotifDate(new Date());
   };
 
   return (
@@ -131,15 +234,98 @@ export default function AddTask() {
           style={styles.input}
         />
 
-        <View style={styles.switchRow}>
-          <Text variant="bodyLarge">Aktifkan Pengingat (Notifikasi)</Text>
-          <Switch value={isReminderActive} onValueChange={setIsReminderActive} />
+        <View style={styles.notificationsContainer}>
+          <Text variant="titleMedium" style={styles.sectionTitle}>Notifikasi</Text>
+          {notifications.map((notif, index) => (
+            <View key={index} style={[styles.notificationCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+              <View style={styles.notificationInfo}>
+                <Text variant="bodyLarge" style={{ fontWeight: 'bold' }}>{notif.title}</Text>
+                {notif.type === 'relative' ? (
+                  <Text variant="bodyMedium">
+                    {notif.offsetMinutes === 0
+                      ? 'Saat Tenggat Waktu'
+                      : notif.offsetMinutes === -60
+                        ? '1 Jam Sebelum'
+                        : '1 Hari Sebelum'}
+                  </Text>
+                ) : (
+                  <Text variant="bodyMedium">
+                    {dayjs(notif.scheduledDate).format('DD MMM YYYY, HH:mm')}
+                  </Text>
+                )}
+              </View>
+              <IconButton icon="delete" iconColor={theme.colors.error} onPress={() => removeNotification(index)} />
+            </View>
+          ))}
+
+          <Button mode="outlined" onPress={() => setCustomNotifModalVisible(true)} style={styles.addNotifButton}>
+            + Tambah Custom Notifikasi
+          </Button>
         </View>
 
         <Button mode="contained" onPress={handleSave} style={styles.saveButton}>
           Simpan Tugas
         </Button>
       </View>
+
+      <Portal>
+        <Dialog visible={isCustomNotifModalVisible} onDismiss={() => setCustomNotifModalVisible(false)}>
+          <Dialog.Title>Tambah Custom Notifikasi</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Judul Notifikasi"
+              value={customNotifTitle}
+              onChangeText={setCustomNotifTitle}
+              mode="outlined"
+              style={styles.input}
+            />
+            <TextInput
+              label="Deskripsi"
+              value={customNotifDesc}
+              onChangeText={setCustomNotifDesc}
+              mode="outlined"
+              style={styles.input}
+            />
+
+            <View style={styles.row}>
+              <Button mode="outlined" onPress={() => setShowCustomDatePicker(true)} style={styles.flex1}>
+                {dayjs(customNotifDate).format('DD MMM YYYY')}
+              </Button>
+              <View style={{ width: 16 }} />
+              <Button mode="outlined" onPress={() => setShowCustomTimePicker(true)} style={styles.flex1}>
+                {dayjs(customNotifDate).format('HH:mm')}
+              </Button>
+            </View>
+
+            {showCustomDatePicker && (
+              <DateTimePicker
+                value={customNotifDate}
+                mode="date"
+                onChange={(event, date) => {
+                  setShowCustomDatePicker(false);
+                  if (date) setCustomNotifDate(date);
+                }}
+              />
+            )}
+
+            {showCustomTimePicker && (
+              <DateTimePicker
+                value={customNotifDate}
+                mode="time"
+                onChange={(event, date) => {
+                  setShowCustomTimePicker(false);
+                  if (date) setCustomNotifDate(date);
+                }}
+              />
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setCustomNotifModalVisible(false)}>Batal</Button>
+            <Button onPress={handleAddCustomNotif}>Simpan Notif</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
     </ScrollView>
   );
 }
@@ -164,11 +350,27 @@ const styles = StyleSheet.create({
   label: {
     marginBottom: 8,
   },
-  switchRow: {
+  notificationsContainer: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    marginBottom: 8,
+    fontWeight: 'bold',
+  },
+  notificationCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginVertical: 16,
+    paddingLeft: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  notificationInfo: {
+    flex: 1,
+    paddingVertical: 8,
+  },
+  addNotifButton: {
+    marginTop: 8,
   },
   saveButton: {
     marginTop: 24,

@@ -39,6 +39,13 @@ export default function RootLayout() {
             presentation: 'modal'
           }}
         />
+        <Stack.Screen
+          name="task-detail"
+          options={{
+            headerShown: true,
+            title: 'Detail Tugas'
+          }}
+        />
       </Stack>
     </PaperProvider>
   );
