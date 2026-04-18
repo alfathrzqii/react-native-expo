@@ -23,11 +23,21 @@ export interface TaskNotification {
   scheduledDate: string | null; // ISO 8601 string, Used if type === 'absolute'
 }
 
+export interface Category {
+  id?: number;
+  name: string;
+}
+
 const db = SQLite.openDatabaseSync('remindy.db');
 
 export const initDB = () => {
   db.execSync(`
     PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
 
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +79,15 @@ export const initDB = () => {
     db.execSync(`ALTER TABLE tasks ADD COLUMN completedAt TEXT`);
     // Set completedAt to current time for tasks that are already completed, otherwise null
     db.runSync(`UPDATE tasks SET completedAt = ? WHERE isCompleted = 1`, nowISO);
+  }
+
+  // Seed default categories if table is empty
+  const categoryCountResult = db.getFirstSync('SELECT COUNT(*) as count FROM categories') as { count: number };
+  if (categoryCountResult && categoryCountResult.count === 0) {
+    const defaultCategories = ['Tugas', 'Ujian', 'Proyek'];
+    for (const cat of defaultCategories) {
+      db.runSync('INSERT INTO categories (name) VALUES (?)', cat);
+    }
   }
 };
 
@@ -176,4 +195,21 @@ export const deleteNotificationFromDB = (id: number) => {
 
 export const deleteAllNotificationsForTask = (taskId: number) => {
   db.runSync('DELETE FROM task_notifications WHERE taskId = ?', taskId);
+};
+
+export const getCategoriesFromDB = (): Category[] => {
+  const allRows = db.getAllSync('SELECT * FROM categories ORDER BY id ASC') as any[];
+  return allRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+  }));
+};
+
+export const addCategoryToDB = (name: string): number => {
+  const result = db.runSync('INSERT OR IGNORE INTO categories (name) VALUES (?)', name);
+  return result.lastInsertRowId;
+};
+
+export const deleteCategoryFromDB = (id: number) => {
+  db.runSync('DELETE FROM categories WHERE id = ?', id);
 };

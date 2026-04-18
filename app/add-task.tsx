@@ -11,7 +11,7 @@ export default function AddTask() {
   const router = useRouter();
   const theme = useTheme();
   const params = useLocalSearchParams();
-  const { addTask, updateTask, getNotifications } = useTaskStore();
+  const { addTask, updateTask, getNotifications, categories, loadCategories, addCategoryAction, deleteCategoryAction } = useTaskStore();
 
   const editingTask: Task | null = params.taskParam
     ? JSON.parse(params.taskParam as string)
@@ -35,7 +35,12 @@ export default function AddTask() {
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
   const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
 
+  // Modal Category State
+  const [isCategoryModalVisible, setCategoryModalVisible] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+
   useEffect(() => {
+    loadCategories();
     if (editingTask) {
       const dbNotifs = getNotifications(editingTask.id!);
       if (dbNotifs.length === 0 && editingTask.isReminderActive === 1) {
@@ -213,16 +218,15 @@ export default function AddTask() {
         )}
 
         <Text variant="titleSmall" style={styles.label}>Kategori</Text>
-        <SegmentedButtons
-          value={category}
-          onValueChange={setCategory}
-          buttons={[
-            { value: 'Tugas', label: 'Tugas' },
-            { value: 'Ujian', label: 'Ujian' },
-            { value: 'Proyek', label: 'Proyek' },
-          ]}
+        <Button
+          mode="outlined"
+          onPress={() => setCategoryModalVisible(true)}
           style={styles.input}
-        />
+          contentStyle={styles.categoryButtonContent}
+          labelStyle={styles.categoryButtonLabel}
+        >
+          {category || 'Pilih Kategori'}
+        </Button>
 
         <Text variant="titleSmall" style={styles.label}>Prioritas</Text>
         <SegmentedButtons
@@ -326,6 +330,64 @@ export default function AddTask() {
             <Button onPress={handleAddCustomNotif}>Simpan Notif</Button>
           </Dialog.Actions>
         </Dialog>
+
+        <Dialog visible={isCategoryModalVisible} onDismiss={() => setCategoryModalVisible(false)}>
+          <Dialog.Title>Pilih Kategori</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={{ maxHeight: 200 }}>
+              {categories.map((cat) => (
+                <View key={cat.id} style={styles.categoryItem}>
+                  <Button
+                    mode={category === cat.name ? 'contained-tonal' : 'text'}
+                    onPress={() => {
+                      setCategory(cat.name);
+                      setCategoryModalVisible(false);
+                    }}
+                    style={styles.flex1}
+                    contentStyle={{ justifyContent: 'flex-start' }}
+                  >
+                    {cat.name}
+                  </Button>
+                  <IconButton
+                    icon="delete"
+                    iconColor={theme.colors.error}
+                    size={20}
+                    onPress={() => deleteCategoryAction(cat.id!)}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+            <View style={[styles.row, { marginTop: 16, marginBottom: 0 }]}>
+              <TextInput
+                label="Kategori Baru"
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                mode="outlined"
+                style={[styles.flex1, { height: 40 }]}
+                dense
+              />
+              <IconButton
+                icon="plus"
+                mode="contained"
+                containerColor={theme.colors.primary}
+                iconColor={theme.colors.onPrimary}
+                size={24}
+                onPress={() => {
+                  if (newCategoryName.trim()) {
+                    addCategoryAction(newCategoryName.trim());
+                    setCategory(newCategoryName.trim());
+                    setNewCategoryName('');
+                    setCategoryModalVisible(false);
+                  }
+                }}
+                style={{ marginTop: 6 }}
+              />
+            </View>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setCategoryModalVisible(false)}>Tutup</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
 
     </ScrollView>
@@ -377,5 +439,17 @@ const styles = StyleSheet.create({
   saveButton: {
     marginTop: 24,
     paddingVertical: 8,
+  },
+  categoryButtonContent: {
+    justifyContent: 'flex-start',
+    paddingVertical: 4,
+  },
+  categoryButtonLabel: {
+    fontSize: 16,
+  },
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
   },
 });
