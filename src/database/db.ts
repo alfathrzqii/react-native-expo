@@ -9,6 +9,8 @@ export interface Task {
   priority: number;
   isReminderActive: number; // 0 or 1
   isCompleted: number; // 0 or 1
+  createdAt?: string; // ISO 8601 string
+  completedAt?: string | null; // ISO 8601 string
 }
 
 export interface TaskNotification {
@@ -35,7 +37,9 @@ export const initDB = () => {
       category TEXT NOT NULL,
       priority INTEGER NOT NULL,
       isReminderActive INTEGER NOT NULL DEFAULT 0,
-      isCompleted INTEGER NOT NULL DEFAULT 0
+      isCompleted INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT,
+      completedAt TEXT
     );
 
     CREATE TABLE IF NOT EXISTS task_notifications (
@@ -49,28 +53,34 @@ export const initDB = () => {
       FOREIGN KEY(taskId) REFERENCES tasks(id) ON DELETE CASCADE
     );
   `);
+
+  // Migration: Add new columns to existing tasks table if they don't exist
+  const tableInfo = db.getAllSync(`PRAGMA table_info(tasks)`) as any[];
+  const columnNames = tableInfo.map((info) => info.name);
+
+  const nowISO = new Date().toISOString();
+
+  if (!columnNames.includes('createdAt')) {
+    db.execSync(`ALTER TABLE tasks ADD COLUMN createdAt TEXT`);
+    db.runSync(`UPDATE tasks SET createdAt = ?`, nowISO);
+  }
+
+  if (!columnNames.includes('completedAt')) {
+    db.execSync(`ALTER TABLE tasks ADD COLUMN completedAt TEXT`);
+    // Set completedAt to current time for tasks that are already completed, otherwise null
+    db.runSync(`UPDATE tasks SET completedAt = ? WHERE isCompleted = 1`, nowISO);
+  }
 };
 
 // Initialize DB immediately at module level so it's ready before any component mounts
 initDB();
 
 export const addTaskToDB = (task: Task) => {
-  const result = db.runSync(
-    'INSERT INTO tasks (title, description, deadline, category, priority, isReminderActive, isCompleted) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    task.title,
-    task.description,
-    task.deadline,
-    task.category,
-    task.priority,
-    task.isReminderActive,
-    task.isCompleted
-  );
-  return result.lastInsertRowId;
-};
+  const createdAt = task.createdAt || new Date().toISOString();
+  const completedAt = task.isCompleted ? (task.completedAt || new Date().toISOString()) : null;
 
-export const updateTaskInDB = (task: Task) => {
-  db.runSync(
-    'UPDATE tasks SET title = ?, description = ?, deadline = ?, category = ?, priority = ?, isReminderActive = ?, isCompleted = ? WHERE id = ?',
+  const result = db.runSync(
+    'INSERT INTO tasks (title, description, deadline, category, priority, isReminderActive, isCompleted, createdAt, completedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     task.title,
     task.description,
     task.deadline,
@@ -78,6 +88,24 @@ export const updateTaskInDB = (task: Task) => {
     task.priority,
     task.isReminderActive,
     task.isCompleted,
+    createdAt,
+    completedAt
+  );
+  return result.lastInsertRowId;
+};
+
+export const updateTaskInDB = (task: Task) => {
+  db.runSync(
+    'UPDATE tasks SET title = ?, description = ?, deadline = ?, category = ?, priority = ?, isReminderActive = ?, isCompleted = ?, createdAt = ?, completedAt = ? WHERE id = ?',
+    task.title,
+    task.description,
+    task.deadline,
+    task.category,
+    task.priority,
+    task.isReminderActive,
+    task.isCompleted,
+    task.createdAt || null,
+    task.completedAt || null,
     task.id!
   );
 };
@@ -97,6 +125,8 @@ export const getTasksFromDB = (): Task[] => {
     priority: row.priority,
     isReminderActive: row.isReminderActive,
     isCompleted: row.isCompleted,
+    createdAt: row.createdAt,
+    completedAt: row.completedAt,
   }));
 };
 

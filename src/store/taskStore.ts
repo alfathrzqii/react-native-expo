@@ -79,7 +79,13 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   toggleTaskCompletion: async (id) => {
     const task = get().tasks.find((t) => t.id === id);
     if (task) {
-      const updatedTask = { ...task, isCompleted: task.isCompleted === 1 ? 0 : 1 };
+      const isNowCompleted = task.isCompleted === 1 ? 0 : 1;
+      const completedAt = isNowCompleted ? new Date().toISOString() : null;
+      const updatedTask = {
+        ...task,
+        isCompleted: isNowCompleted,
+        completedAt: completedAt
+      };
       updateTaskInDB(updatedTask);
 
       if (updatedTask.isCompleted === 1) {

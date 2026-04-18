@@ -111,6 +111,8 @@ export default function AddTask() {
       priority: parseInt(priority),
       isReminderActive: notifications.length > 0 ? 1 : 0, // Fallback for schema
       isCompleted: editingTask ? editingTask.isCompleted : 0,
+      createdAt: editingTask ? editingTask.createdAt : new Date().toISOString(),
+      completedAt: editingTask ? editingTask.completedAt : null,
     };
 
     // Update relative notif titles to match current title if it changed,
