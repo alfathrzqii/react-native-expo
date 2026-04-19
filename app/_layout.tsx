@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
-import { MD3LightTheme, PaperProvider } from 'react-native-paper';
+import { useColorScheme } from 'react-native';
+import { MD3LightTheme, MD3DarkTheme, PaperProvider } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import '../src/database/db'; // Ensure db module is loaded and initialized
 import { requestPermissions } from '../src/utils/notifications';
+import { useThemeStore } from '../src/store/themeStore';
 
-const theme = {
+const lightTheme = {
   ...MD3LightTheme,
   colors: {
     ...MD3LightTheme.colors,
@@ -17,14 +19,33 @@ const theme = {
   },
 };
 
+const darkTheme = {
+  ...MD3DarkTheme,
+};
+
 export default function RootLayout() {
+  const systemColorScheme = useColorScheme();
+  const { themePreference, isLoaded, loadThemePreference } = useThemeStore();
+
   useEffect(() => {
     requestPermissions();
+    loadThemePreference();
   }, []);
+
+  if (!isLoaded) {
+    return null; // Or a splash screen
+  }
+
+  const isDarkMode =
+    themePreference === 'dark' ||
+    (themePreference === 'system' && systemColorScheme === 'dark');
+
+  const theme = isDarkMode ? darkTheme : lightTheme;
+  const statusBarStyle = isDarkMode ? 'light' : 'dark';
 
   return (
     <PaperProvider theme={theme}>
-      <StatusBar style="auto" />
+      <StatusBar style={statusBarStyle} />
       <Stack
         screenOptions={{
           headerShown: false,
